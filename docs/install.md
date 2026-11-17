@@ -19,13 +19,24 @@ The `.dist` files include the shared config from `vendor/samjuk/dev-standards/ph
 A repository with `registration.php` at its root, or `"type": "magento2-module"` in `composer.json`, is a module.
 
 ```sh
+composer config repositories.mage-os composer https://mirror.mage-os.org/   # Magento packages without repo.magento.com keys
 composer require --dev samjuk/dev-standards magento/magento-coding-standard
-composer require --dev magento/framework phpstan/phpstan bitexpert/phpstan-magento phpstan/extension-installer   # optional: PHPStan
+composer require --dev bitexpert/phpstan-magento phpstan/extension-installer   # Magento factories and proxies for PHPStan
 vendor/bin/samjuk-dev-standards init
 ```
 
-`init` writes `phpcs.xml.dist`, listing every top-level folder with PHP or templates, bar `vendor/`.
-It writes `phpstan.neon.dist` too once PHPStan and `magento/framework` are installed, as PHPStan needs Magento to analyse a module.
+The module's `composer.json` has to `require` what its code uses: `magento/framework` at least, as `registration.php` calls it, and every Magento module it depends on.
+PHPCS and PHPStan load Composer's autoloader, which runs `registration.php`, so the checks fail until it does.
+[Yireo's ExtensionChecker](https://github.com/yireo/Yireo_ExtensionChecker) finds undeclared dependencies and suggests the `require` section.
+
+Composer asks to allow plugins.
+Allow `dealerdirect/phpcodesniffer-composer-installer`, which registers the Magento coding standard with PHPCS.
+Magento's own plugins are not needed in a module, so deny those.
+Ignore `/vendor/`, `/var/` (PHPStan's cache) and `composer.lock` in the module's `.gitignore`.
+
+`init` writes `phpcs.xml.dist` and `phpstan.neon.dist`, listing every top-level folder with PHP or templates, bar `vendor/`.
+The Magento coding standard brings PHPStan with it, so a module gets both.
+With tests under analysis, add `phpunit/phpunit` too, or take the tests folder out of `paths`.
 
 ## Laravel app
 

@@ -121,6 +121,11 @@ magento_check() {
         echo 'No first-party PHP or templates to check.' >&2
         return 0
     fi
+    # PHPCS loads Composer's autoloader, which runs the module's registration.php against Magento.
+    if [ -n "$module" ] && [ ! -d vendor/magento/framework ]; then
+        echo 'registration.php needs magento/framework, which is not installed. Require it in composer.json, then composer install.' >&2
+        return 1
+    fi
     if [ "$fix" = 1 ]; then
         "$php" vendor/bin/phpcbf "$@"
         status=$?
