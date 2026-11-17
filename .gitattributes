@@ -1,0 +1,8 @@
+# What each package download contains. Composer installs GitHub's archive, which honours
+# export-ignore; so does pnpm for a GitHub dependency. Only what neither needs is left out.
+/.gitattributes  export-ignore
+/.github         export-ignore
+/tests           export-ignore
+/cliff.toml      export-ignore
+/CONTRIBUTING.md export-ignore
+/lefthook.yml    export-ignore

@@ -1,0 +1,6 @@
+includes:
+    - vendor/samjuk/dev-standards/php/magento/phpstan.neon
+
+parameters:
+    paths:
+{{paths}}

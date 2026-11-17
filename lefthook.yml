@@ -1,0 +1,5 @@
+# This repository's own commits get the shared rules, run from the working tree.
+templates:
+  dev-standards: .
+extends:
+  - lefthook/base.yml

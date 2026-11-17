@@ -1,0 +1,8 @@
+pre-commit:
+  jobs:
+    - name: magento-object-manager
+      glob: "*.{php,phtml}"
+      run: "{dev-standards}/rules/magento/object-manager.sh {staged_files}"
+    - name: php-standards
+      glob: "*.{php,phtml}"
+      run: "{dev-standards}/bin/samjuk-dev-standards check {staged_files}"

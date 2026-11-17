@@ -1,0 +1,5 @@
+pre-commit:
+  jobs:
+    - name: php-standards
+      glob: "*.php"
+      run: "{dev-standards}/bin/samjuk-dev-standards check {staged_files}"

@@ -1,0 +1,18 @@
+{
+    "name": "@samjuk/dev-standards",
+    "description": "Shared git hooks, commit rules and QA config for Magento, Laravel, Node and other projects.",
+    "license": "MIT",
+    "homepage": "https://github.com/SamJUK/dev-standards",
+    "repository": "github:SamJUK/dev-standards",
+    "bin": {
+        "samjuk-dev-standards": "bin/samjuk-dev-standards"
+    },
+    "files": [
+        "bin",
+        "lefthook",
+        "rules",
+        "stubs",
+        "README.md",
+        "LICENSE"
+    ]
+}

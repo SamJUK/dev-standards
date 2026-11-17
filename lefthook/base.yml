@@ -1,0 +1,32 @@
+# Rules for every project. Shared configs set only run, glob and stdin: an option set here would
+# override the project's lefthook.yml, so defaults live in each script and projects set them with env.
+commit-msg:
+  jobs:
+    - name: conventional-commit
+      run: "{dev-standards}/rules/commit-msg/conventional-commit.sh {1}"
+    - name: message-width
+      run: "{dev-standards}/rules/commit-msg/message-width.sh {1}"
+    - name: task-id
+      run: "{dev-standards}/rules/commit-msg/task-id.sh {1}"
+
+pre-commit:
+  jobs:
+    - name: conflict-markers
+      run: "{dev-standards}/rules/pre-commit/conflict-markers.sh {staged_files}"
+    - name: debug-statements
+      run: "{dev-standards}/rules/pre-commit/debug-statements.sh {staged_files}"
+    - name: private-keys
+      run: "{dev-standards}/rules/pre-commit/private-keys.sh {staged_files}"
+    - name: large-files
+      run: "{dev-standards}/rules/pre-commit/large-files.sh {staged_files}"
+    - name: credential-files
+      run: "{dev-standards}/rules/pre-commit/credential-files.sh {staged_files}"
+
+pre-push:
+  jobs:
+    # Lefthook skips a pre-push job when the pushed commits change no files (an empty commit, a branch delete);
+    # a {files} list of its own keeps this one running every time.
+    - name: protected-branches
+      files: echo lefthook.yml
+      run: "{dev-standards}/rules/pre-push/protected-branches.sh {files}"
+      use_stdin: true

@@ -1,0 +1,27 @@
+{
+    "name": "samjuk/dev-standards",
+    "description": "Shared git hooks, commit rules and QA config for Magento, Laravel, Node and other projects.",
+    "keywords": [
+        "lefthook",
+        "git-hooks",
+        "conventional-commits",
+        "phpcs",
+        "phpstan",
+        "magento",
+        "laravel",
+        "code-quality"
+    ],
+    "type": "library",
+    "license": "MIT",
+    "homepage": "https://github.com/SamJUK/dev-standards",
+    "support": {
+        "issues": "https://github.com/SamJUK/dev-standards/issues",
+        "source": "https://github.com/SamJUK/dev-standards"
+    },
+    "require": {
+        "evilmartians/lefthook": "^2.2"
+    },
+    "bin": [
+        "bin/samjuk-dev-standards"
+    ]
+}

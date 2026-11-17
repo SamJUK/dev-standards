@@ -1,0 +1,5 @@
+parameters:
+    level: 6
+    tmpDir: %currentWorkingDirectory%/var/phpstan
+    bootstrapFiles:
+        - %currentWorkingDirectory%/vendor/autoload.php

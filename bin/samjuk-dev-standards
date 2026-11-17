@@ -1,0 +1,267 @@
+#!/bin/sh
+# samjuk-dev-standards: set up and check a project against samjuk/dev-standards.
+set -u
+# Split words on newlines only, without globbing: file lists are one path per line, and paths may hold spaces.
+IFS='
+'
+set -f
+
+self=$(realpath "$0") || exit 1
+package=$(cd "$(dirname "$self")/.." && pwd)
+php="$package/rules/lib/php.sh"
+
+# The project is wherever Composer or npm installed us, which may be a folder of the repo (web/ or site/). pnpm keeps
+# the real files under node_modules/.pnpm, so the project is whatever comes before the first node_modules.
+case $package in
+    */vendor/samjuk/dev-standards) root=${package%/vendor/samjuk/dev-standards} shared=vendor/samjuk/dev-standards bin=vendor/bin ;;
+    */node_modules/*) root=${package%%/node_modules/*} shared=node_modules/@samjuk/dev-standards bin=node_modules/.bin ;;
+    *) root=$(git rev-parse --show-toplevel) shared=vendor/samjuk/dev-standards bin=vendor/bin ;;
+esac
+top=$(git rev-parse --show-toplevel) || exit 1
+case $root in
+    "$top" | "$top"/*) ;;
+    *) echo "dev-standards is installed in $root, outside this repository ($top); install it here." >&2; exit 1 ;;
+esac
+cd "$root" || exit 1
+prefix=${root#"$top"}
+prefix=${prefix#/}
+
+# A Magento module repository's own code is the whole repo. With no stack, only the shared base rules apply.
+module=
+if [ -f artisan ]; then
+    stack=laravel
+elif [ -f registration.php ] || grep -qs '"type": *"magento2-module"' composer.json; then
+    stack=magento module=1
+elif [ -f app/etc/config.php ] || [ -f bin/magento ]; then
+    stack=magento
+elif [ -f package.json ]; then
+    stack=node
+else
+    stack=none
+fi
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: samjuk-dev-standards <command> [files...]
+
+  check [files]     The stack's checks (Magento: PHPCS, PHPStan; Laravel: Pint, PHPStan; Node: package.json
+                    scripts), on the given files or all
+  fix [files]       PHPCBF or Pint
+  init              Write lefthook.yml and the stack's QA config; install the git hooks
+  doctor [--strict] Report setup drift; --strict exits non-zero on any
+EOF
+    exit 2
+}
+
+# The <file> entries in phpcs.xml.dist, outside comments, as paths relative to the project.
+listed_files() {
+    [ -f phpcs.xml.dist ] || return 0
+    awk '{ xml = xml $0 "\n" } END {
+        while ((i = index(xml, "<!--")) > 0) {
+            rest = substr(xml, i + 4)
+            j = index(rest, "-->")
+            xml = substr(xml, 1, i - 1) (j ? substr(rest, j + 3) : "")
+        }
+        while (match(xml, /<file[ \t\n>][^<]*<\/file>/)) {
+            entry = substr(xml, RSTART, RLENGTH)
+            xml = substr(xml, RSTART + RLENGTH)
+            sub(/^<file[^>]*>/, "", entry)
+            sub(/<\/file>$/, "", entry)
+            gsub(/^[ \t\n]+|[ \t\n]+$/, "", entry)
+            sub(/^\.\//, "", entry)
+            sub(/\/+$/, "", entry)
+            print entry
+        }
+    }' phpcs.xml.dist
+}
+
+# What to check: the <file> entries in the project's phpcs.xml.dist when it lists any. Otherwise Magento first-party
+# code (app/code/<Vendor>, app/design/<area>/<Vendor>, skipping core overrides), or in a module repository every
+# top-level file and folder with PHP or templates, bar vendor/.
+source_dirs() {
+    listed=$(listed_files)
+    if [ -n "$listed" ]; then
+        printf '%s\n' "$listed"
+        return
+    fi
+    if [ -n "$module" ]; then
+        git ls-files -- '*.php' '*.phtml' | grep -v '^vendor/' | cut -d/ -f1 | sort -u
+        return
+    fi
+    git ls-files -- 'app/code/*' 'app/design/*' | grep -E '\.(php|phtml)$' | grep -v '^app/code/Magento/' \
+        | awk -F/ '{ print $1 "/" $2 "/" $3 ($2 == "design" ? "/" $4 : "") }' | sort -u
+}
+
+# Lefthook passes paths from the repo root; keep the project's own, relative to it.
+project_files() {
+    dirs=$(source_dirs)
+    for file; do
+        if [ -n "$prefix" ]; then
+            case $file in "$prefix"/*) file=${file#"$prefix"/} ;; *) continue ;; esac
+        fi
+        [ -f "$file" ] || continue
+        case $stack in
+            laravel) case $file in vendor/*) ;; *.php) printf '%s\n' "$file" ;; esac ;;
+            node) case $file in node_modules/*) ;; *) printf '%s\n' "$file" ;; esac ;;
+            magento) for dir in $dirs; do
+                    case $file in "$dir" | "$dir"/*) printf '%s\n' "$file"; break ;; esac
+                done ;;
+        esac
+    done
+}
+
+has_phpstan() {
+    [ -f phpstan.neon ] || [ -f phpstan.neon.dist ]
+}
+
+magento_check() {
+    fix=$1
+    shift
+    if [ $# -eq 0 ] && [ -z "$(source_dirs)" ]; then
+        echo 'No first-party PHP or templates to check.' >&2
+        return 0
+    fi
+    if [ "$fix" = 1 ]; then
+        "$php" vendor/bin/phpcbf "$@"
+        status=$?
+        [ $status -eq 1 ] && return 0 # phpcbf: 1 means it fixed everything it found
+        return $status
+    fi
+    "$php" vendor/bin/phpcs "$@"
+    status=$?
+    php_files=$(printf '%s\n' "$@" | grep '\.php$')
+    if has_phpstan && { [ $# -eq 0 ] || [ -n "$php_files" ]; }; then
+        # shellcheck disable=SC2086 # one path per line, split on newlines
+        "$php" vendor/bin/phpstan analyse --memory-limit=2G --no-progress $php_files || status=1
+    fi
+    return $status
+}
+
+# Mirrors the shared laravel-php CI job: Pint, then PHPStan over its configured paths when there is a config.
+laravel_check() {
+    fix=$1
+    shift
+    status=0
+    if [ -x vendor/bin/pint ]; then
+        if [ "$fix" = 1 ]; then
+            "$php" vendor/bin/pint "$@"
+            return
+        fi
+        "$php" vendor/bin/pint --test "$@" || status=1
+    fi
+    if [ "$fix" = 0 ] && has_phpstan; then
+        "$php" vendor/bin/phpstan analyse --memory-limit=2G --no-progress || status=1
+    fi
+    return $status
+}
+
+# Mirrors the shared static-site CI job: the same package.json scripts, bar test (end-to-end, too slow for a commit).
+node_check() {
+    if [ "$1" = 1 ]; then
+        echo 'No fixer for Node projects; run your formatter.' >&2
+        return 0
+    fi
+    status=0
+    defined=$(node -e 'console.log(Object.keys(require("./package.json").scripts || {}).join("\n"))') || return 1
+    for script in $(printf '%s\n' "${NODE_SCRIPTS:-lint check typecheck}" | tr ' ' '\n'); do
+        printf '%s\n' "$defined" | grep -qxF "$script" || continue
+        npm run --silent "$script" || status=1
+    done
+    return $status
+}
+
+check() {
+    fix=$1
+    shift
+    [ "$stack" = none ] && return 0
+    if [ $# -gt 0 ]; then
+        # shellcheck disable=SC2046 # one path per line, split on newlines
+        set -- $(project_files "$@")
+        [ $# -gt 0 ] || return 0
+    fi
+    "${stack}_check" "$fix" "$@"
+}
+
+# Copy a stub, replacing a {{placeholder}} line with the given lines.
+stub() {
+    LINES=$3 awk -v key="{{$2}}" 'index($0, key) { print ENVIRON["LINES"]; next } { print }' "$package/stubs/$1"
+}
+
+ignored() {
+    git check-ignore -q -- "$1"
+}
+
+# Project files init writes, as "<shared config it must include> <file>"; the file goes last, as its path may hold
+# spaces. lefthook.yml lives at the repo root.
+config_files() {
+    printf '%s %s\n' "$shared/lefthook/base.yml" "$top/lefthook.yml"
+    [ "$stack" = magento ] || return 0
+    printf '%s %s\n' "$shared/php/magento/phpcs.xml" phpcs.xml.dist
+    # A module only gets PHPStan with it and Magento installed in its vendor/: the shared config analyses against them.
+    if [ -f phpstan.neon.dist ] || source_dirs | grep -q '^app/code/' \
+        || { [ -n "$module" ] && [ -d vendor/magento/framework ] && [ -x vendor/bin/phpstan ]; }; then
+        printf '%s %s\n' "$shared/php/magento/phpstan.neon" phpstan.neon.dist
+    fi
+}
+
+init() {
+    dirs=$(source_dirs)
+    config_files | while IFS=' ' read -r _ file; do
+        name=${file##*/}
+        if [ -f "$file" ]; then
+            echo "kept    $name"
+            continue
+        fi
+        case $name in
+            lefthook.yml) sed -e "s/{{stack}}/$stack/" -e '/lefthook\/none\.yml/d' \
+                -e "s#vendor/samjuk/dev-standards#${prefix:+$prefix/}$shared#g" "$package/stubs/lefthook.yml" ;;
+            phpstan.neon.dist) stub "$stack/$name" paths "$(printf '%s\n' "$dirs" | grep "$( [ -n "$module" ] && echo . || echo '^app/code/')" | sed 's/^/        - /')" ;;
+            phpcs.xml.dist) stub "$stack/$name" files "$(printf '%s\n' "$dirs" | sed 's#.*#    <file>&</file>#')" ;;
+        esac > "$file"
+        echo "wrote   $name"
+        ignored "$file" && echo "warning: $name is ignored by .gitignore; allowlist it so it can be committed" >&2
+    done
+    "$bin/lefthook" install
+}
+
+doctor() {
+    strict=$1
+    problems=$(config_files | while IFS=' ' read -r include file; do
+        name=${file##*/}
+        if [ ! -f "$file" ]; then
+            echo "$name is missing (run: samjuk-dev-standards init)"
+        elif ! grep -qF "$include" "$file"; then
+            echo "$name does not include $include"
+        elif ignored "$file"; then
+            echo "$name is ignored by .gitignore, so it is never committed"
+        fi
+    done)
+    if [ "$stack" = magento ] && { [ -f phpstan.neon ] || [ -f phpcs.xml ]; }; then
+        problems="${problems:+$problems
+}a local phpstan.neon or phpcs.xml overrides the shared .dist config"
+    fi
+    if ! grep -qs lefthook "$(git rev-parse --git-path hooks)/pre-commit"; then
+        problems="${problems:+$problems
+}git hooks are not installed (run: $bin/lefthook install)"
+    fi
+
+    if [ -z "$problems" ]; then
+        echo ok
+        return 0
+    fi
+    level=warning
+    [ "$strict" = 1 ] && level=error
+    printf '%s\n' "$problems" | sed "s/^/$level: /" >&2
+    [ "$strict" = 1 ] && return 1
+    return 0
+}
+
+command=${1:-check}
+[ $# -gt 0 ] && shift
+case $command in
+    check) check 0 "$@" ;;
+    fix) check 1 "$@" ;;
+    init) init ;;
+    doctor) if [ "${1:-}" = --strict ]; then doctor 1; else doctor 0; fi ;;
+    *) usage ;;
+esac

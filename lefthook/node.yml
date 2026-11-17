@@ -1,0 +1,5 @@
+pre-commit:
+  jobs:
+    - name: node-checks
+      glob: "*.{js,mjs,cjs,ts,mts,cts,jsx,tsx,astro,vue,svelte,css,scss,md,mdx,json,yml,yaml}"
+      run: "{dev-standards}/bin/samjuk-dev-standards check {staged_files}"

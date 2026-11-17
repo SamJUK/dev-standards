@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<ruleset name="samjuk-dev-standards-magento">
+    <description>Magento2 standard as the shared CI pipeline runs it: PHP and templates only, severity 6 and up.</description>
+    <arg name="severity" value="6"/>
+    <arg value="s"/>
+    <!-- Magento2 sets its own extensions list first, which wins over an arg here. -->
+    <exclude-pattern>*\.(less|css|js|html|xml|graphqls)$</exclude-pattern>
+    <rule ref="Magento2">
+        <!-- No .less, .css or .graphqls files get through, and loading these prints a deprecation notice on every run. -->
+        <exclude name="Magento2.Less"/>
+        <exclude name="Magento2.GraphQL"/>
+        <exclude name="Squiz.CSS"/>
+    </rule>
+</ruleset>
