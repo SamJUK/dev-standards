@@ -4,9 +4,10 @@ setup() {
     project
 }
 
-# A module repository with the package in vendor/ as Composer installs it.
+# A module repository with the package and Magento in vendor/ as Composer installs them.
 module() {
     install_package vendor
+    mkdir -p vendor/magento/framework
     fake_tool vendor/bin/phpcs
     printf '/vendor/\n' > .gitignore
     add registration.php '<?php\n' && add Model/Item.php '<?php\n'
@@ -16,6 +17,7 @@ module() {
 # A module kept under src/, known only by its composer type, scoped by phpcs.xml.dist.
 src_module() {
     install_package vendor
+    mkdir -p vendor/magento/framework
     fake_tool vendor/bin/phpcs
     printf '/vendor/\n' > .gitignore
     printf '{"type": "magento2-module"}\n' > composer.json
@@ -61,14 +63,19 @@ src_module() {
 
 @test "module: no PHPStan config with Magento but no PHPStan" {
     module
-    mkdir -p vendor/magento/framework
     vendor/bin/samjuk-dev-standards init
     [ ! -f phpstan.neon.dist ]
 }
 
+@test "module without magento/framework: PHPCS is not run, and the commit says why" {
+    module
+    rm -r vendor/magento
+    blocked php-standards add Model/Good.php '<?php\n'
+    [[ $output == *"registration.php needs magento/framework"* ]]
+}
+
 @test "module: init adds PHPStan once it and Magento are installed" {
     module
-    mkdir -p vendor/magento/framework
     printf '#!/bin/sh\n' > vendor/bin/phpstan && chmod +x vendor/bin/phpstan
     vendor/bin/samjuk-dev-standards init
     grep -q '        - Model' phpstan.neon.dist
